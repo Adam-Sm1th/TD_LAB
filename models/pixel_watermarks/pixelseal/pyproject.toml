@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixelseal"
+version = "0.1.0"
+description = "My local PixelSeal package"
+dependencies = [
+    "torch",
+    "torchvision",
+    "pillow",
+    "tqdm",
+    "kornia"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["videoseal*"]  # 包含 videoseal 文件夹
+
+[tool.setuptools]
+# 既然 pixelseal_provider.py 在根目录，我们需要显式声明它
+py-modules = ["pixelseal_provider"]
