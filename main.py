@@ -13,7 +13,9 @@ from utils.utils import set_random_seed
 from torch import Tensor
 import torchvision
 from PIL import Image
-from pixelseal_provider import PixelSealProvider #忽略爆红
+from pixelseal_provider import PixelSealProvider  # 忽略爆红
+from utils.image_utils import torch_to_PIL, PIL_to_torch
+
 
 def fetch_ages():
     # args
@@ -56,8 +58,10 @@ def fetch_ages():
     args = parser.parse_args()
     return args
 
-def reprompting_attack(img:Tensor, args):
-    attacker_prompt = PROMPTS_I2P_LIST[args.attacker_prompt_index] if args.attacker_prompt is None else args.attacker_prompt
+
+def reprompting_attack(img: Tensor, args):
+    attacker_prompt = PROMPTS_I2P_LIST[
+        args.attacker_prompt_index] if args.attacker_prompt is None else args.attacker_prompt
     pipe_provider_attacker = pipe_utils.get_pipe_provider(pretrained_model_name_or_path=args.modelid_attacker,
                                                           resolution=args.resolution,
                                                           device=DEVICE,
@@ -93,7 +97,7 @@ if __name__ == "__main__":
     set_random_seed(args.seed)
 
     # --------------------------------------------------------------- generate a image with semantic watemark ----------------------------------------------------------------------
-    #provider model
+    # provider model
     print("generate a image with semantic watemark")
     pipe_provider_target = pipe_utils.get_pipe_provider(pretrained_model_name_or_path=args.modelid_target,
                                                         resolution=args.resolution,
@@ -105,7 +109,7 @@ if __name__ == "__main__":
                                                         disable_tqdm=True
                                                         )  # finetuned model
 
-    #wm provider
+    # wm provider
     wm_provider = WmProviders[args.wm_type].value(latent_shape=pipe_provider_target.get_latent_shape(), **vars(args))
     wm_initial_results = wm_provider.get_wm_latents()
     wm_zT = wm_initial_results["zT_torch"]
@@ -115,12 +119,14 @@ if __name__ == "__main__":
                                           num_inference_steps=args.num_inference_steps_target,
                                           guidance_scale=args.guidance_scale_target,
                                           latents=wm_zT)
-    gs_image = res_1["images_PIL"][0]
-    gs_tensor = res_1["images_torch"][0]
+    gs_pil = res_1["images_PIL"][0]
+    gs_tensor = res_1["images_torch"]
+    gs_pil.save("gs_pil.png")
 
     with torch.no_grad():
         # retrieve zT
-        zT_retrieved = pipe_provider_target.invert_images(gs_image, num_inference_steps=args.num_inference_steps_target)["zT_torch"]
+        zT_retrieved = pipe_provider_target.invert_images(gs_pil, num_inference_steps=args.num_inference_steps_target)[
+            "zT_torch"]
 
     # watermark test
     accuracy_results = wm_provider.get_accuracies(zT_retrieved)
@@ -131,7 +137,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------------- add pixel watermark ----------------------------------------------------------------------
     batch_size = 1
     message_length = 256
-    random_message = torch.randint(0, 2, (batch_size, message_length))
+    random_message = torch.randint(0, 2, (batch_size, message_length)).to(DEVICE)
 
     # read image
     to_tensor = torchvision.transforms.ToTensor()
@@ -146,10 +152,14 @@ if __name__ == "__main__":
     decoded_msg, acc = n.decode(imgs_w, random_message)
     print(f"pixelwatermark acc = {acc}")
 
+    pixel_gs_pil = torch_to_PIL(imgs_w)[0]
+    pixel_gs_pil.save("pixel_gs_pil.png")
+
     # --------------------------------------------------------------- reprompt attack ----------------------------------------------------------------------
     print(f"start reprompt attack")
     reprompting_tensor = reprompting_attack(imgs_w, args)
-
+    reprompting_pil = torch_to_PIL(reprompting_tensor)[0]
+    reprompting_pil.save("reprompt.png")
     # --------------------------------------------------------------- reprompt acc ----------------------------------------------------------------------
     pipe_provider_target = pipe_utils.get_pipe_provider(pretrained_model_name_or_path=args.modelid_target,
                                                         resolution=args.resolution,
@@ -162,11 +172,13 @@ if __name__ == "__main__":
                                                         )  # finetuned model
     # detect pixel watermark
     decoded_msg, acc = n.decode(reprompting_tensor, random_message)
-    print(f"reprompt pixel watermark bit accuracy = {bit_accuracy}")
+    print(f"reprompt pixel watermark bit accuracy = {acc}")
 
     with torch.no_grad():
         # retrieve zT
-        zT_retrieved = pipe_provider_target.invert_images(reprompting_tensor, num_inference_steps=args.num_inference_steps_target)["zT_torch"]
+        zT_retrieved = \
+        pipe_provider_target.invert_images(reprompting_tensor, num_inference_steps=args.num_inference_steps_target)[
+            "zT_torch"]
 
     pipe_provider_target.stash_pipe()
     # detect senmantic watermark
